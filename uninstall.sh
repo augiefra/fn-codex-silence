@@ -1,52 +1,81 @@
 #!/usr/bin/env sh
 set -eu
 
-HS_DIR="$HOME/.hammerspoon"
-MODULE_TARGET="$HS_DIR/fn-mute.lua"
-INIT_TARGET="$HS_DIR/init.lua"
-BEGIN_MARKER="-- >>> fn-codex-silence >>>"
-END_MARKER="-- <<< fn-codex-silence <<<"
-LEGACY_BEGIN_MARKER="-- >>> fn-mute-for-codex >>>"
-LEGACY_END_MARKER="-- <<< fn-mute-for-codex <<<"
+APP_BUNDLE="$HOME/Applications/Codex Dictate Companion.app"
+PLIST_TARGET="$HOME/Library/LaunchAgents/com.augiefra.codex-dictate-companion.plist"
+LOG_DIR="$HOME/Library/Logs/codex-dictate-companion"
 
-if [ -f "$MODULE_TARGET" ]; then
-  rm "$MODULE_TARGET"
-  echo "Removed $MODULE_TARGET"
+OLD_PLIST_TARGET="$HOME/Library/LaunchAgents/com.augiefra.fn-codex-silence.plist"
+OLD_APP_BUNDLE="$HOME/Applications/Fn Codex Silence.app"
+OLD_APP_SUPPORT_DIR="$HOME/Library/Application Support/fn-codex-silence"
+OLD_LOG_DIR="$HOME/Library/Logs/fn-codex-silence"
+
+REMOVE_LOGS=false
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --remove-logs)
+      REMOVE_LOGS=true
+      ;;
+    -h|--help)
+      echo "Usage: sh uninstall.sh [--remove-logs]"
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      exit 1
+      ;;
+  esac
+  shift
+done
+
+if launchctl print "gui/$(id -u)/com.augiefra.codex-dictate-companion" >/dev/null 2>&1; then
+  launchctl bootout "gui/$(id -u)" "$PLIST_TARGET" >/dev/null 2>&1 || true
+  echo "Unloaded LaunchAgent com.augiefra.codex-dictate-companion"
 fi
 
-if [ -f "$INIT_TARGET" ] && grep -q -- "$BEGIN_MARKER" "$INIT_TARGET"; then
-  TMP_FILE="$(mktemp)"
-  awk -v begin="$BEGIN_MARKER" -v end="$END_MARKER" '
-    $0 == begin {
-      in_block = 1
-      next
-    }
-    $0 == end {
-      in_block = 0
-      next
-    }
-    !in_block { print }
-  ' "$INIT_TARGET" > "$TMP_FILE"
-  mv "$TMP_FILE" "$INIT_TARGET"
-  echo "Removed managed fn-codex-silence block from $INIT_TARGET"
-elif [ -f "$INIT_TARGET" ] && grep -q -- "$LEGACY_BEGIN_MARKER" "$INIT_TARGET"; then
-  TMP_FILE="$(mktemp)"
-  awk -v begin="$LEGACY_BEGIN_MARKER" -v end="$LEGACY_END_MARKER" '
-    $0 == begin {
-      in_block = 1
-      next
-    }
-    $0 == end {
-      in_block = 0
-      next
-    }
-    !in_block { print }
-  ' "$INIT_TARGET" > "$TMP_FILE"
-  mv "$TMP_FILE" "$INIT_TARGET"
-  echo "Removed legacy fn-mute block from $INIT_TARGET"
+if launchctl print "gui/$(id -u)/com.augiefra.fn-codex-silence" >/dev/null 2>&1; then
+  launchctl bootout "gui/$(id -u)" "$OLD_PLIST_TARGET" >/dev/null 2>&1 || true
+  echo "Unloaded old LaunchAgent com.augiefra.fn-codex-silence"
 fi
 
-if command -v hs >/dev/null 2>&1; then
-  hs -c 'hs.reload()' >/dev/null 2>&1 || true
-  echo "Reloaded Hammerspoon with hs CLI."
+pkill -x codex-dictate-companion >/dev/null 2>&1 || true
+pkill -x fn-codex-silence >/dev/null 2>&1 || true
+pkill -x "Codex Dictate Companion" >/dev/null 2>&1 || true
+
+if [ -f "$PLIST_TARGET" ]; then
+  rm "$PLIST_TARGET"
+  echo "Removed $PLIST_TARGET"
+fi
+
+if [ -f "$OLD_PLIST_TARGET" ]; then
+  rm "$OLD_PLIST_TARGET"
+  echo "Removed old $OLD_PLIST_TARGET"
+fi
+
+if [ -d "$APP_BUNDLE" ]; then
+  rm -rf "$APP_BUNDLE"
+  echo "Removed $APP_BUNDLE"
+fi
+
+if [ -d "$OLD_APP_BUNDLE" ]; then
+  rm -rf "$OLD_APP_BUNDLE"
+  echo "Removed old $OLD_APP_BUNDLE"
+fi
+
+if [ -d "$OLD_APP_SUPPORT_DIR" ]; then
+  rm -rf "$OLD_APP_SUPPORT_DIR"
+  echo "Removed old $OLD_APP_SUPPORT_DIR"
+fi
+
+if [ "$REMOVE_LOGS" = true ]; then
+  if [ -d "$LOG_DIR" ]; then
+    rm -rf "$LOG_DIR"
+    echo "Removed $LOG_DIR"
+  fi
+
+  if [ -d "$OLD_LOG_DIR" ]; then
+    rm -rf "$OLD_LOG_DIR"
+    echo "Removed old $OLD_LOG_DIR"
+  fi
 fi

@@ -2,30 +2,45 @@
 set -eu
 
 SOURCE_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-HS_DIR="$HOME/.hammerspoon"
-MODULE_TARGET="$HS_DIR/fn-mute.lua"
-INIT_TARGET="$HS_DIR/init.lua"
-BEGIN_MARKER="-- >>> fn-codex-silence >>>"
-END_MARKER="-- <<< fn-codex-silence <<<"
-LEGACY_BEGIN_MARKER="-- >>> fn-mute-for-codex >>>"
-LEGACY_END_MARKER="-- <<< fn-mute-for-codex <<<"
-INSTALL_HAMMERSPOON=false
-NO_BREW=false
+APP_BUNDLE="$HOME/Applications/Codex Dictate Companion.app"
+PROJECT_PATH="$SOURCE_DIR/CodexDictateCompanion.xcodeproj"
+SCHEME="CodexDictateCompanion"
+DERIVED_DATA_PATH="${TMPDIR:-/private/tmp}/codex-dictate-companion-xcode"
+BUILT_APP="$DERIVED_DATA_PATH/Build/Products/Release/Codex Dictate Companion.app"
+PLIST_TARGET="$HOME/Library/LaunchAgents/com.augiefra.codex-dictate-companion.plist"
+LOG_DIR="$HOME/Library/Logs/codex-dictate-companion"
+SHORTCUT="fn"
+DEVELOPMENT_TEAM="KX5QF45WFE"
+
+OLD_PLIST_TARGET="$HOME/Library/LaunchAgents/com.augiefra.fn-codex-silence.plist"
+OLD_APP_BUNDLE="$HOME/Applications/Fn Codex Silence.app"
+OLD_APP_SUPPORT_DIR="$HOME/Library/Application Support/fn-codex-silence"
+
+usage() {
+  cat <<'EOF'
+Usage: sh install.sh [--shortcut fn|ctrl+space|cmd+shift+x|keycode:49]
+
+Installs Codex Dictate Companion as a menu bar app launched at login.
+EOF
+}
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --install-hammerspoon)
-      INSTALL_HAMMERSPOON=true
-      ;;
-    --no-brew)
-      NO_BREW=true
+    --shortcut)
+      if [ "$#" -lt 2 ]; then
+        echo "--shortcut requires a value." >&2
+        exit 1
+      fi
+      SHORTCUT="$2"
+      shift
       ;;
     -h|--help)
-      echo "Usage: sh install.sh [--install-hammerspoon] [--no-brew]"
+      usage
       exit 0
       ;;
     *)
       echo "Unknown option: $1" >&2
+      usage >&2
       exit 1
       ;;
   esac
@@ -37,87 +52,102 @@ if [ "$(uname -s)" != "Darwin" ]; then
   exit 1
 fi
 
-if [ ! -d "/Applications/Hammerspoon.app" ] && [ ! -d "$HOME/Applications/Hammerspoon.app" ]; then
-  if [ "$INSTALL_HAMMERSPOON" = true ] && [ "$NO_BREW" = false ] && command -v brew >/dev/null 2>&1; then
-    echo "Installing Hammerspoon with Homebrew..."
-    brew install --cask hammerspoon
-  else
-    echo "Hammerspoon is not installed yet."
-    echo "Install it from https://www.hammerspoon.org/ or run:"
-    echo "  sh install.sh --install-hammerspoon"
-    echo
-    if command -v open >/dev/null 2>&1; then
-      open "https://www.hammerspoon.org/"
-    fi
+if ! command -v xcodebuild >/dev/null 2>&1; then
+  echo "Xcode is required to build Codex Dictate Companion." >&2
+  exit 1
+fi
+
+if [ -z "${DEVELOPER_DIR:-}" ]; then
+  if [ -d "/Applications/Xcode-beta.app/Contents/Developer" ]; then
+    export DEVELOPER_DIR="/Applications/Xcode-beta.app/Contents/Developer"
+  elif [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+    export DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
   fi
 fi
 
-mkdir -p "$HS_DIR"
-cp "$SOURCE_DIR/hammerspoon/fn-mute.lua" "$MODULE_TARGET"
+mkdir -p "$HOME/Applications" "$HOME/Library/LaunchAgents" "$LOG_DIR"
 
-CONFIG_BLOCK="$BEGIN_MARKER
-package.loaded[\"fn-mute\"] = nil
-require(\"fn-mute\").start({
-  mode = \"hold\",
-  showAlerts = false,
-})
-$END_MARKER"
+echo "Using Xcode toolchain:"
+xcodebuild -version
 
-if [ ! -f "$INIT_TARGET" ]; then
-  printf '%s\n' "$CONFIG_BLOCK" > "$INIT_TARGET"
-  echo "Created $INIT_TARGET"
-else
-  if grep -q -- "$BEGIN_MARKER" "$INIT_TARGET"; then
-    TMP_FILE="$(mktemp)"
-    awk -v begin="$BEGIN_MARKER" -v end="$END_MARKER" -v block="$CONFIG_BLOCK" '
-      $0 == begin {
-        print block
-        in_block = 1
-        next
-      }
-      $0 == end {
-        in_block = 0
-        next
-      }
-      !in_block { print }
-    ' "$INIT_TARGET" > "$TMP_FILE"
-    mv "$TMP_FILE" "$INIT_TARGET"
-    echo "Updated existing fn-codex-silence block in $INIT_TARGET"
-  elif grep -q -- "$LEGACY_BEGIN_MARKER" "$INIT_TARGET"; then
-    TMP_FILE="$(mktemp)"
-    awk -v begin="$LEGACY_BEGIN_MARKER" -v end="$LEGACY_END_MARKER" -v block="$CONFIG_BLOCK" '
-      $0 == begin {
-        print block
-        in_block = 1
-        next
-      }
-      $0 == end {
-        in_block = 0
-        next
-      }
-      !in_block { print }
-    ' "$INIT_TARGET" > "$TMP_FILE"
-    mv "$TMP_FILE" "$INIT_TARGET"
-    echo "Migrated legacy fn-mute block in $INIT_TARGET"
-  elif grep -q -- 'fn-mute' "$INIT_TARGET"; then
-    echo "$INIT_TARGET already references fn-mute without installer markers."
-    echo "Leaving it unchanged; edit it manually if you want to switch to the managed block."
-  else
-    printf '\n%s\n' "$CONFIG_BLOCK" >> "$INIT_TARGET"
-    echo "Updated $INIT_TARGET"
-  fi
+# macOS can attach Finder metadata to copied .icns files. codesign rejects
+# that metadata inside app bundles, so keep the source tree clean before build.
+xattr -cr "$SOURCE_DIR/Resources" "$SOURCE_DIR/CodexDictateCompanion" "$SOURCE_DIR/CodexDictateCompanion.xcodeproj" >/dev/null 2>&1 || true
+
+echo "Building Codex Dictate Companion with Xcode..."
+xcodebuild \
+  -project "$PROJECT_PATH" \
+  -scheme "$SCHEME" \
+  -configuration Release \
+  -destination "generic/platform=macOS" \
+  -derivedDataPath "$DERIVED_DATA_PATH" \
+  -allowProvisioningUpdates \
+  ARCHS=arm64 \
+  ONLY_ACTIVE_ARCH=NO \
+  DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
+  build
+
+if [ ! -d "$BUILT_APP" ]; then
+  echo "Build succeeded but $BUILT_APP was not found." >&2
+  exit 1
 fi
 
-echo "Installed $MODULE_TARGET"
+rm -rf "$APP_BUNDLE"
+cp -R "$BUILT_APP" "$APP_BUNDLE"
 
-if command -v hs >/dev/null 2>&1; then
-  hs -c 'hs.reload()' >/dev/null 2>&1 || true
-  echo "Reloaded Hammerspoon with hs CLI."
-elif command -v open >/dev/null 2>&1; then
-  open -a Hammerspoon >/dev/null 2>&1 || true
-  echo "Opened Hammerspoon. Use Reload Config if it was already running."
-else
-  echo "Open or reload Hammerspoon."
+touch "$APP_BUNDLE"
+
+cat > "$PLIST_TARGET" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.augiefra.codex-dictate-companion</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/open</string>
+    <string>-gj</string>
+    <string>$APP_BUNDLE</string>
+    <string>--args</string>
+    <string>--shortcut</string>
+    <string>$SHORTCUT</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>$LOG_DIR/launchd-out.log</string>
+  <key>StandardErrorPath</key>
+  <string>$LOG_DIR/launchd-error.log</string>
+</dict>
+</plist>
+EOF
+
+if launchctl print "gui/$(id -u)/com.augiefra.fn-codex-silence" >/dev/null 2>&1; then
+  launchctl bootout "gui/$(id -u)" "$OLD_PLIST_TARGET" >/dev/null 2>&1 || true
 fi
 
-echo "Grant Accessibility permission to Hammerspoon if macOS asks."
+if launchctl print "gui/$(id -u)/com.augiefra.codex-dictate-companion" >/dev/null 2>&1; then
+  launchctl bootout "gui/$(id -u)" "$PLIST_TARGET" >/dev/null 2>&1 || true
+fi
+
+pkill -x fn-codex-silence >/dev/null 2>&1 || true
+pkill -x codex-dictate-companion >/dev/null 2>&1 || true
+pkill -x "Codex Dictate Companion" >/dev/null 2>&1 || true
+
+rm -f "$OLD_PLIST_TARGET"
+rm -rf "$OLD_APP_BUNDLE"
+rm -rf "$OLD_APP_SUPPORT_DIR"
+
+launchctl bootstrap "gui/$(id -u)" "$PLIST_TARGET"
+launchctl kickstart -k "gui/$(id -u)/com.augiefra.codex-dictate-companion"
+
+echo "Installed $APP_BUNDLE"
+echo "Loaded LaunchAgent $PLIST_TARGET"
+echo "Launch method: /usr/bin/open -gj"
+echo "Shortcut: $SHORTCUT"
+echo
+echo "Use the menu bar icon to check permissions, test mute, and choose one of three icons."
+echo "If macOS asks for Input Monitoring or Accessibility permission, grant it to Codex Dictate Companion."
+echo "Logs: $LOG_DIR"
