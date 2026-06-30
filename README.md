@@ -4,6 +4,20 @@ Native macOS menu bar companion for Codex dictation.
 
 Hold your Codex dictation shortcut, by default `Fn/Globe`, and Codex Dictate Companion mutes macOS output audio while the key is held. Release the key and your previous mute state is restored instantly.
 
+## Download
+
+Public builds are distributed for free through GitHub Releases:
+
+```text
+https://github.com/augiefra/fn-codex-silence/releases
+```
+
+Download the `Codex-Dictate-Companion-<version>-arm64.dmg`, drag the app to
+Applications, launch it, then grant Input Monitoring when macOS asks.
+
+Release artifacts must be signed with a Developer ID Application certificate
+and notarized by Apple. See [Distribution](docs/DISTRIBUTION.md).
+
 ## Behavior
 
 - Hold `Fn/Globe`: mute all available macOS output devices.
@@ -41,6 +55,10 @@ The menu bar app includes:
 The selected icon is saved in macOS preferences.
 
 ## Install
+
+For normal users, prefer the downloadable GitHub Release.
+
+For local development:
 
 Requirements:
 
