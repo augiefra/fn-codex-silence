@@ -6,6 +6,7 @@ SCHEME="CodexDictateCompanion"
 TEAM_ID="${DEVELOPMENT_TEAM:-KX5QF45WFE}"
 CONFIGURATION="Release"
 REQUIRE_NOTARIZATION=true
+NOTARIZE_DMG=true
 VERSION=""
 CODESIGN_IDENTITY="${CODESIGN_IDENTITY:-}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-}"
@@ -14,7 +15,7 @@ NOTARY_KEYCHAIN="${NOTARY_KEYCHAIN:-}"
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/package-release.sh [--version 1.0.0] [--identity "Developer ID Application: ..."] [--notary-profile profile] [--notary-keychain path] [--skip-notarize]
+  scripts/package-release.sh [--version 1.0.0] [--identity "Developer ID Application: ..."] [--notary-profile profile] [--notary-keychain path] [--skip-notarize] [--skip-dmg-notarize]
 
 Builds an Apple Silicon-only public release artifact:
   dist/release-<version>/Codex-Dictate-Companion-<version>-arm64.dmg
@@ -61,6 +62,9 @@ while [ "$#" -gt 0 ]; do
       ;;
     --skip-notarize)
       REQUIRE_NOTARIZATION=false
+      ;;
+    --skip-dmg-notarize)
+      NOTARIZE_DMG=false
       ;;
     -h|--help)
       usage
@@ -160,13 +164,14 @@ SLUG_VERSION="$(printf '%s' "$VERSION" | tr -c '[:alnum:]._-' '-')"
 DERIVED_DATA_PATH="${TMPDIR:-/private/tmp}/codex-dictate-companion-release"
 RELEASE_DIR="$SOURCE_DIR/dist/release-$SLUG_VERSION"
 APP_BUNDLE="$DERIVED_DATA_PATH/Build/Products/$CONFIGURATION/$APP_NAME.app"
-SIGNED_APP="$RELEASE_DIR/$APP_NAME.app"
+STAGING_DIR="$DERIVED_DATA_PATH/ReleaseStaging"
+SIGNED_APP="$STAGING_DIR/$APP_NAME.app"
 ZIP_PATH="$RELEASE_DIR/Codex-Dictate-Companion-$SLUG_VERSION-arm64.zip"
 DMG_PATH="$RELEASE_DIR/Codex-Dictate-Companion-$SLUG_VERSION-arm64.dmg"
 NOTES_PATH="$RELEASE_DIR/RELEASE_NOTES.md"
 
 rm -rf "$DERIVED_DATA_PATH" "$RELEASE_DIR"
-mkdir -p "$RELEASE_DIR"
+mkdir -p "$RELEASE_DIR" "$STAGING_DIR"
 
 echo "Building $APP_NAME $VERSION for Apple Silicon..."
 xcodebuild \
@@ -179,7 +184,9 @@ xcodebuild \
   ONLY_ACTIVE_ARCH=NO \
   CODE_SIGN_STYLE=Manual \
   CODE_SIGN_IDENTITY="$CODESIGN_IDENTITY" \
+  CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
   DEVELOPMENT_TEAM="$TEAM_ID" \
+  OTHER_CODE_SIGN_FLAGS="--timestamp" \
   build
 
 if [ ! -d "$APP_BUNDLE" ]; then
@@ -191,6 +198,17 @@ ditto --noextattr --noqtn "$APP_BUNDLE" "$SIGNED_APP"
 xattr -cr "$SIGNED_APP" >/dev/null 2>&1 || true
 find "$SIGNED_APP" -depth -exec xattr -d com.apple.FinderInfo {} \; >/dev/null 2>&1 || true
 find "$SIGNED_APP" -depth -exec xattr -d 'com.apple.fileprovider.fpfs#P' {} \; >/dev/null 2>&1 || true
+xattr -c "$SIGNED_APP" >/dev/null 2>&1 || true
+
+# Xcode may inject development-only entitlements for local builds. Re-sign the
+# copied release bundle explicitly for Developer ID distribution before upload.
+codesign \
+  --force \
+  --deep \
+  --options runtime \
+  --timestamp \
+  --sign "$CODESIGN_IDENTITY" \
+  "$SIGNED_APP"
 
 ARCHS_FOUND="$(lipo -archs "$SIGNED_APP/Contents/MacOS/$APP_NAME")"
 if [ "$ARCHS_FOUND" != "arm64" ]; then
@@ -219,11 +237,13 @@ hdiutil create \
   -format UDZO \
   "$DMG_PATH"
 
-if [ "$REQUIRE_NOTARIZATION" = true ]; then
+if [ "$REQUIRE_NOTARIZATION" = true ] && [ "$NOTARIZE_DMG" = true ]; then
   echo "Submitting DMG for notarization..."
   notarytool_submit "$DMG_PATH"
   xcrun stapler staple "$DMG_PATH"
   spctl -a -vv -t open --context context:primary-signature "$DMG_PATH"
+elif [ "$REQUIRE_NOTARIZATION" = true ]; then
+  echo "Skipping DMG notarization. The ZIP contains the notarized, stapled app."
 fi
 
 cat > "$NOTES_PATH" <<EOF
@@ -233,8 +253,8 @@ Apple Silicon-only macOS menu bar app for Codex hold-to-dictate.
 
 ## Install
 
-1. Download \`Codex-Dictate-Companion-$SLUG_VERSION-arm64.dmg\`.
-2. Open the DMG and drag \`Codex Dictate Companion.app\` to Applications.
+1. Download \`Codex-Dictate-Companion-$SLUG_VERSION-arm64.zip\`.
+2. Unzip it and drag \`Codex Dictate Companion.app\` to Applications.
 3. Launch the app.
 4. Grant Input Monitoring when macOS asks.
 5. In Codex, keep Hold-to-dictate set to \`Fn/Globe\`.

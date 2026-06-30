@@ -8,8 +8,8 @@ artifact has been signed with Developer ID and notarized by Apple.
 - macOS 13 or later
 - Apple Silicon only (`arm64`)
 - Distribution channel: GitHub Releases
-- Preferred artifact: notarized `.dmg`
-- Secondary artifact: notarized `.zip`
+- Preferred artifact: notarized `.zip`
+- Optional artifact: notarized `.dmg`
 
 ## Why notarization matters
 
@@ -44,6 +44,13 @@ Publish them to GitHub Releases:
 scripts/publish-github-release.sh 1.0.0
 ```
 
+If DMG notarization is unavailable or blocked, publish only the notarized ZIP:
+
+```sh
+NOTARY_PROFILE=codex-dictate-companion scripts/package-release.sh --version 1.0.0 --skip-dmg-notarize
+scripts/publish-github-release.sh --zip-only 1.0.0
+```
+
 ## GitHub Actions release
 
 The repository also includes `.github/workflows/release.yml`.
@@ -61,8 +68,8 @@ After that, run the `Release` workflow manually and enter the version.
 
 ## User install flow
 
-1. Download `Codex-Dictate-Companion-<version>-arm64.dmg` from GitHub Releases.
-2. Open the DMG.
+1. Download `Codex-Dictate-Companion-<version>-arm64.zip` from GitHub Releases.
+2. Unzip it.
 3. Drag `Codex Dictate Companion.app` to Applications.
 4. Launch the app from Applications.
 5. Grant Input Monitoring in System Settings.

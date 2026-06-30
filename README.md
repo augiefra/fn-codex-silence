@@ -12,8 +12,8 @@ Public builds are distributed for free through GitHub Releases:
 https://github.com/augiefra/fn-codex-silence/releases
 ```
 
-Download the `Codex-Dictate-Companion-<version>-arm64.dmg`, drag the app to
-Applications, launch it, then grant Input Monitoring when macOS asks.
+Download the `Codex-Dictate-Companion-<version>-arm64.zip`, unzip it, drag the
+app to Applications, launch it, then grant Input Monitoring when macOS asks.
 
 Release artifacts must be signed with a Developer ID Application certificate
 and notarized by Apple. See [Distribution](docs/DISTRIBUTION.md).
