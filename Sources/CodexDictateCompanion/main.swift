@@ -64,7 +64,6 @@ private enum AppError: Error, CustomStringConvertible {
   case audioVolumeWriteFailed(OSStatus)
   case audioInputDeviceUnavailable(OSStatus)
   case audioInputDeviceWriteFailed(OSStatus)
-  case audioInputActivityReadFailed(OSStatus)
 
   var description: String {
     switch self {
@@ -88,8 +87,6 @@ private enum AppError: Error, CustomStringConvertible {
       return "Unable to find a usable input audio device. OSStatus: \(status)"
     case .audioInputDeviceWriteFailed(let status):
       return "Unable to update the default input audio device. OSStatus: \(status)"
-    case .audioInputActivityReadFailed(let status):
-      return "Unable to read input audio activity. OSStatus: \(status)"
     }
   }
 }
@@ -667,56 +664,6 @@ private final class AudioMuteController {
   }
 }
 
-private final class AudioInputActivityController {
-  func isDefaultInputRunning() throws -> Bool {
-    let deviceID = try defaultInputDeviceID()
-    var isRunning = UInt32(0)
-    var size = UInt32(MemoryLayout<UInt32>.size)
-    var address = AudioObjectPropertyAddress(
-      mSelector: kAudioDevicePropertyDeviceIsRunningSomewhere,
-      mScope: kAudioObjectPropertyScopeGlobal,
-      mElement: kAudioObjectPropertyElementMain
-    )
-
-    guard AudioObjectHasProperty(deviceID, &address) else {
-      return false
-    }
-
-    let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &isRunning)
-
-    guard status == noErr else {
-      throw AppError.audioInputActivityReadFailed(status)
-    }
-
-    return isRunning != 0
-  }
-
-  private func defaultInputDeviceID() throws -> AudioDeviceID {
-    var deviceID = AudioDeviceID(0)
-    var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-    var address = AudioObjectPropertyAddress(
-      mSelector: kAudioHardwarePropertyDefaultInputDevice,
-      mScope: kAudioObjectPropertyScopeGlobal,
-      mElement: kAudioObjectPropertyElementMain
-    )
-
-    let status = AudioObjectGetPropertyData(
-      AudioObjectID(kAudioObjectSystemObject),
-      &address,
-      0,
-      nil,
-      &size,
-      &deviceID
-    )
-
-    guard status == noErr, deviceID != AudioDeviceID(kAudioObjectUnknown) else {
-      throw AppError.audioInputDeviceUnavailable(status)
-    }
-
-    return deviceID
-  }
-}
-
 private final class AudioInputRouteController {
   private var previousInputDeviceID: AudioDeviceID?
   private var protectionTimer: Timer?
@@ -1030,7 +977,6 @@ private final class ShortcutMonitor {
         audio.restore()
         inputRoute.stopAirPodsStereoGuard(restorePreviousInput: true)
         shortcutWasDown = false
-        microphoneWasActive = false
       }
     }
   }
@@ -1040,11 +986,7 @@ private final class ShortcutMonitor {
   var airPodsStereoGuardEnabled: Bool
   private let audio = AudioMuteController()
   private let inputRoute = AudioInputRouteController()
-  private let inputActivity = AudioInputActivityController()
   private var shortcutWasDown = false
-  private var microphoneWasActive = false
-  private var microphoneActivityTimer: Timer?
-  private var ignoreMicrophoneActivityUntil = Date.distantPast
   private var eventTap: CFMachPort?
 
   var isRunning: Bool {
@@ -1085,7 +1027,6 @@ private final class ShortcutMonitor {
 
     Logger.info("codex-dictate-companion: running. Shortcut: \(describe(shortcut))")
     inputRoute.startAirPodsStereoGuard(enabled: airPodsStereoGuardEnabled)
-    startMicrophoneActivityFallback()
   }
 
   fileprivate func handle(type: CGEventType, event: CGEvent) {
@@ -1117,7 +1058,6 @@ private final class ShortcutMonitor {
       delegate?.shortcutMonitorDidMute()
     } else {
       Logger.info("codex-dictate-companion: shortcut up")
-      ignoreMicrophoneActivityUntil = Date().addingTimeInterval(0.35)
       audio.restore()
       delegate?.shortcutMonitorDidRestore()
     }
@@ -1130,47 +1070,6 @@ private final class ShortcutMonitor {
       inputRoute.startAirPodsStereoGuard(enabled: true)
     } else {
       inputRoute.stopAirPodsStereoGuard(restorePreviousInput: true)
-    }
-  }
-
-  private func startMicrophoneActivityFallback() {
-    guard microphoneActivityTimer == nil else {
-      return
-    }
-
-    let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
-      self?.handleMicrophoneActivityTick()
-    }
-    RunLoop.main.add(timer, forMode: .common)
-    microphoneActivityTimer = timer
-  }
-
-  private func handleMicrophoneActivityTick() {
-    guard enabled, !shortcutWasDown, Date() >= ignoreMicrophoneActivityUntil else {
-      return
-    }
-
-    do {
-      let isActive = try inputActivity.isDefaultInputRunning()
-
-      guard isActive != microphoneWasActive else {
-        return
-      }
-
-      microphoneWasActive = isActive
-
-      if isActive {
-        inputRoute.protectAirPodsStereoIfNeeded(enabled: airPodsStereoGuardEnabled)
-        Logger.info("codex-dictate-companion: microphone active fallback down")
-        audio.mute()
-        delegate?.shortcutMonitorDidMute()
-      } else {
-        Logger.info("codex-dictate-companion: microphone active fallback up")
-        audio.restore()
-        delegate?.shortcutMonitorDidRestore()
-      }
-    } catch {
-      Logger.error("codex-dictate-companion: \(error)")
     }
   }
 

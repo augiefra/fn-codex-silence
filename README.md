@@ -24,7 +24,7 @@ and notarized by Apple. See [Distribution](docs/DISTRIBUTION.md).
 - Release `Fn/Globe`: restore each output device to its previous state immediately.
 - Bluetooth outputs such as AirPods may not support the native mute flag, so the app falls back to setting output volume to `0` and restores the previous volume on release.
 - While the shortcut is held, the app keeps re-applying silence to all output devices so newly switched outputs are covered.
-- If macOS does not deliver the `Fn/Globe` keyboard event reliably, the app also mutes while the default input microphone is active, which covers Codex dictation opening the microphone.
+- The app only mutes while the configured shortcut is physically held. It does not mute just because an app such as Discord, Google Meet, Zoom, or FaceTime is using the microphone.
 - AirPods Stereo Guard is enabled by default. While the companion is enabled, if the default input is AirPods or another Bluetooth microphone, the app keeps input routed to the best local non-Bluetooth microphone. This prevents Codex from opening the AirPods microphone path before dictation starts.
 - The key event is not consumed, so Codex still receives the dictation shortcut.
 - It mutes macOS output audio. It does not pause Spotify, MyCanal, YouTube, QuickTime, etc.
