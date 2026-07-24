@@ -1,4 +1,3 @@
-import ApplicationServices
 import AppKit
 import AudioToolbox
 import CoreAudio
@@ -55,8 +54,7 @@ private enum Logger {
 
 private enum AppError: Error, CustomStringConvertible {
   case eventTapUnavailable
-  case invalidShortcut(String)
-  case invalidKeyCode(String)
+  case invalidArgument(String)
   case audioDeviceUnavailable(OSStatus)
   case audioMuteReadFailed(OSStatus)
   case audioMuteWriteFailed(OSStatus)
@@ -68,11 +66,9 @@ private enum AppError: Error, CustomStringConvertible {
   var description: String {
     switch self {
     case .eventTapUnavailable:
-      return "Unable to create the keyboard event tap. Grant Input Monitoring and Accessibility permissions, then restart \(AppConstants.appName)."
-    case .invalidShortcut(let value):
-      return "Invalid shortcut: \(value)"
-    case .invalidKeyCode(let value):
-      return "Invalid key code: \(value)"
+      return "Unable to create the keyboard event tap. Grant Input Monitoring permission, then restart \(AppConstants.appName)."
+    case .invalidArgument(let value):
+      return "Invalid argument: \(value)"
     case .audioDeviceUnavailable(let status):
       return "Unable to find the default output audio device. OSStatus: \(status)"
     case .audioMuteReadFailed(let status):
@@ -91,13 +87,7 @@ private enum AppError: Error, CustomStringConvertible {
   }
 }
 
-private enum Shortcut: Equatable {
-  case fn
-  case key(keyCode: CGKeyCode, modifiers: CGEventFlags)
-}
-
 private struct Options {
-  var shortcut: Shortcut = .fn
   var showEvents = false
   var testMute = false
   var checkPermissions = false
@@ -214,12 +204,14 @@ private final class AudioMuteController {
       return
     }
 
+    var failedStates: [AudioDeviceID: SilenceState] = [:]
+
     for (deviceID, state) in silenceStates {
       do {
         switch state {
         case .mute(let previousMuted):
-        try setMuted(previousMuted, deviceID: deviceID)
-        Logger.info("codex-dictate-companion: restored \(deviceName(deviceID: deviceID)) to muted=\(previousMuted)")
+          try setMuted(previousMuted, deviceID: deviceID)
+          Logger.info("codex-dictate-companion: restored \(deviceName(deviceID: deviceID)) to muted=\(previousMuted)")
         case .volume(let controls):
           try restoreVolume(controls, deviceID: deviceID)
           let previousVolume = controls.first?.previousVolume ?? 0
@@ -227,10 +219,11 @@ private final class AudioMuteController {
         }
       } catch {
         Logger.error("codex-dictate-companion: \(error)")
+        failedStates[deviceID] = state
       }
     }
 
-    silenceStates.removeAll()
+    silenceStates = failedStates
     skippedOutputLogDates.removeAll()
   }
 
@@ -351,11 +344,6 @@ private final class AudioMuteController {
     return volume
   }
 
-  private func setVolume(_ volume: Float32, deviceID: AudioDeviceID) throws {
-    let controls = try readVolumeControls(deviceID: deviceID)
-    try setVolume(volume, controls: controls, deviceID: deviceID)
-  }
-
   private func setVolume(_ volume: Float32, controls: [VolumeControl], deviceID: AudioDeviceID) throws {
     for control in controls {
       try setVolume(volume, control: control, deviceID: deviceID)
@@ -471,9 +459,9 @@ private final class AudioMuteController {
 
   private func muteUsingVolumeFallback(deviceID: AudioDeviceID, deviceName: String) throws {
     let controls = try readVolumeControls(deviceID: deviceID)
+    let previousVolume = controls.first?.previousVolume ?? 0
     try setVolume(0, controls: controls, deviceID: deviceID)
     silenceStates[deviceID] = .volume(controls: controls)
-    let previousVolume = controls.first?.previousVolume ?? 0
     Logger.info("codex-dictate-companion: muted \(deviceName) using volume fallback, previousVolume=\(String(format: "%.2f", previousVolume))")
   }
 
@@ -536,8 +524,7 @@ private final class AudioMuteController {
       switch transportType {
       case kAudioDeviceTransportTypeBluetooth,
            kAudioDeviceTransportTypeBluetoothLE,
-           kAudioDeviceTransportTypeAirPlay,
-           kAudioDeviceTransportTypeRemoteStreaming:
+           kAudioDeviceTransportTypeAirPlay:
         return true
       default:
         break
@@ -662,6 +649,7 @@ private final class AudioMuteController {
 
     return name as String
   }
+
 }
 
 private final class AudioInputRouteController {
@@ -973,28 +961,33 @@ private final class ShortcutMonitor {
 
   var enabled: Bool {
     didSet {
-      if !enabled {
-        audio.restore()
+      guard enabled != oldValue else {
+        return
+      }
+
+      if enabled {
+        inputRoute.startAirPodsStereoGuard(enabled: airPodsStereoGuardEnabled)
+      } else {
+        resetShortcut(reason: "companion disabled")
         inputRoute.stopAirPodsStereoGuard(restorePreviousInput: true)
-        shortcutWasDown = false
       }
     }
   }
 
-  private let shortcut: Shortcut
   private let showEvents: Bool
   var airPodsStereoGuardEnabled: Bool
   private let audio = AudioMuteController()
   private let inputRoute = AudioInputRouteController()
-  private var shortcutWasDown = false
+  private var shortcutState = ToggleShortcutState()
+  private var isOutputMuted = false
   private var eventTap: CFMachPort?
+  private var runLoopSource: CFRunLoopSource?
 
   var isRunning: Bool {
     eventTap != nil
   }
 
   init(options: Options, enabled: Bool, airPodsStereoGuardEnabled: Bool) {
-    shortcut = options.shortcut
     showEvents = options.showEvents
     self.airPodsStereoGuardEnabled = airPodsStereoGuardEnabled
     self.enabled = enabled
@@ -1003,10 +996,7 @@ private final class ShortcutMonitor {
   func start() throws {
     logPermissions()
 
-    let eventMask =
-      (1 << CGEventType.flagsChanged.rawValue) |
-      (1 << CGEventType.keyDown.rawValue) |
-      (1 << CGEventType.keyUp.rawValue)
+    let eventMask = 1 << CGEventType.flagsChanged.rawValue
 
     eventTap = CGEvent.tapCreate(
       tap: .cgSessionEventTap,
@@ -1023,79 +1013,93 @@ private final class ShortcutMonitor {
 
     let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
     CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
+    runLoopSource = source
     CGEvent.tapEnable(tap: eventTap, enable: true)
 
-    Logger.info("codex-dictate-companion: running. Shortcut: \(describe(shortcut))")
-    inputRoute.startAirPodsStereoGuard(enabled: airPodsStereoGuardEnabled)
+    Logger.info("codex-dictate-companion: running. Shortcuts: Fn/Globe and right Option")
+    if enabled {
+      inputRoute.startAirPodsStereoGuard(enabled: airPodsStereoGuardEnabled)
+    }
   }
 
-  fileprivate func handle(type: CGEventType, event: CGEvent) {
+  fileprivate func handle(
+    type: CGEventType,
+    keyCode: CGKeyCode,
+    flags: CGEventFlags
+  ) {
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+      resetShortcut(reason: "keyboard event tap disabled")
       if let eventTap {
         CGEvent.tapEnable(tap: eventTap, enable: true)
       }
       return
     }
 
-    let isDown = enabled && shortcutIsDown(type: type, event: event)
+    let shouldToggle = enabled
+      && shortcutState.handle(type: type, keyCode: keyCode, flags: flags)
 
     if showEvents {
-      let flags = event.flags
-      let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
-      Logger.info("event=\(type.rawValue) keyCode=\(keyCode) flags=\(flags.rawValue) fn=\(flags.contains(.maskSecondaryFn)) shortcutDown=\(isDown)")
+      Logger.info("event=\(type.rawValue) keyCode=\(keyCode) flags=\(flags.rawValue) fn=\(flags.contains(.maskSecondaryFn)) option=\(flags.contains(.maskAlternate)) toggle=\(shouldToggle)")
     }
 
-    guard isDown != shortcutWasDown else {
+    guard shouldToggle else {
       return
     }
 
-    shortcutWasDown = isDown
-
-    if isDown {
-      inputRoute.protectAirPodsStereoIfNeeded(enabled: airPodsStereoGuardEnabled)
-      Logger.info("codex-dictate-companion: shortcut down")
-      audio.mute()
-      delegate?.shortcutMonitorDidMute()
-    } else {
-      Logger.info("codex-dictate-companion: shortcut up")
+    if isOutputMuted {
+      Logger.info("codex-dictate-companion: output restored by shortcut")
       audio.restore()
+      isOutputMuted = false
       delegate?.shortcutMonitorDidRestore()
+    } else {
+      inputRoute.protectAirPodsStereoIfNeeded(enabled: airPodsStereoGuardEnabled)
+      Logger.info("codex-dictate-companion: output muted by shortcut")
+      audio.mute()
+      isOutputMuted = true
+      delegate?.shortcutMonitorDidMute()
     }
+  }
+
+  func stop(reason: String) {
+    resetShortcut(reason: reason)
+    inputRoute.stopAirPodsStereoGuard(restorePreviousInput: true)
+
+    if let eventTap {
+      CGEvent.tapEnable(tap: eventTap, enable: false)
+      CFMachPortInvalidate(eventTap)
+    }
+    if let runLoopSource {
+      CFRunLoopRemoveSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
+      CFRunLoopSourceInvalidate(runLoopSource)
+    }
+    runLoopSource = nil
+    eventTap = nil
   }
 
   func setAirPodsStereoGuardEnabled(_ enabled: Bool) {
     airPodsStereoGuardEnabled = enabled
 
-    if enabled {
+    if enabled && self.enabled {
       inputRoute.startAirPodsStereoGuard(enabled: true)
     } else {
       inputRoute.stopAirPodsStereoGuard(restorePreviousInput: true)
     }
   }
 
-  private func shortcutIsDown(type: CGEventType, event: CGEvent) -> Bool {
-    switch shortcut {
-    case .fn:
-      return event.flags.contains(.maskSecondaryFn)
+  private func resetShortcut(reason: String) {
+    shortcutState.reset()
+    let wasMuted = isOutputMuted
+    audio.restore()
+    isOutputMuted = false
 
-    case .key(let keyCode, let modifiers):
-      let eventKeyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
-
-      if type == .keyDown {
-        let isRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
-        return !isRepeat && eventKeyCode == keyCode && event.flags.containsAll(modifiers)
-      }
-
-      if type == .keyUp, eventKeyCode == keyCode {
-        return false
-      }
-
-      return shortcutWasDown
+    if wasMuted {
+      Logger.info("codex-dictate-companion: restored audio because \(reason)")
+      delegate?.shortcutMonitorDidRestore()
     }
   }
 
   private func logPermissions() {
-    Logger.info("codex-dictate-companion: \(permissionSummary(promptForAccessibility: false))")
+    Logger.info("codex-dictate-companion: \(permissionSummary())")
   }
 }
 
@@ -1107,6 +1111,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, ShortcutMonito
   private var statusItem: NSStatusItem?
   private var monitor: ShortcutMonitor?
   private var isMutedByShortcut = false
+  private var permissionRetryTimer: Timer?
+  private var isShuttingDown = false
 
   init(options: Options) {
     self.options = options
@@ -1114,12 +1120,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, ShortcutMonito
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.setActivationPolicy(.accessory)
+    installSafetyObservers()
     installStatusItem()
+    requestKeyboardPermissionsIfNeeded()
     startMonitor()
   }
 
   func applicationWillTerminate(_ notification: Notification) {
-    monitor?.enabled = false
+    shutdown(reason: "application terminating")
   }
 
   func shortcutMonitorDidMute() {
@@ -1134,6 +1142,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, ShortcutMonito
 
   @objc private func toggleMonitoring(_ sender: NSMenuItem) {
     preferences.monitorEnabled.toggle()
+
+    if preferences.monitorEnabled, monitor == nil {
+      startMonitor()
+    }
     monitor?.enabled = preferences.monitorEnabled
     rebuildMenu()
     updateStatusIcon()
@@ -1165,25 +1177,28 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, ShortcutMonito
   }
 
   @objc private func requestPermissions(_ sender: NSMenuItem) {
+    requestKeyboardPermissionsIfNeeded(promptEvenIfPreflightPasses: true)
+    schedulePermissionRetry()
+    rebuildMenu()
+  }
+
+  private func requestKeyboardPermissionsIfNeeded(promptEvenIfPreflightPasses: Bool = false) {
+    guard promptEvenIfPreflightPasses || !CGPreflightListenEventAccess() else {
+      return
+    }
+
     NSApp.setActivationPolicy(.regular)
     NSApp.activate(ignoringOtherApps: true)
-    Logger.info("codex-dictate-companion: requesting Input Monitoring and Accessibility permissions")
+    Logger.info("codex-dictate-companion: requesting Input Monitoring permission")
     _ = CGRequestListenEventAccess()
-    _ = permissionSummary(promptForAccessibility: true)
-    NSApp.setActivationPolicy(.accessory)
-    rebuildMenu()
+    Logger.info("codex-dictate-companion: \(permissionSummary())")
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+      NSApp.setActivationPolicy(.accessory)
+    }
   }
 
   @objc private func openInputMonitoring(_ sender: NSMenuItem) {
     NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")!)
-  }
-
-  @objc private func openAccessibility(_ sender: NSMenuItem) {
-    NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
-  }
-
-  @objc private func openCodexDictationSettings(_ sender: NSMenuItem) {
-    NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.keyboard?Dictation")!)
   }
 
   @objc private func openLogs(_ sender: NSMenuItem) {
@@ -1193,7 +1208,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, ShortcutMonito
   }
 
   @objc private func quit(_ sender: NSMenuItem) {
-    monitor?.enabled = false
+    shutdown(reason: "user quit")
     NSApp.terminate(nil)
   }
 
@@ -1220,9 +1235,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, ShortcutMonito
     input.isEnabled = false
     menu.addItem(input)
 
-    let shortcut = NSMenuItem(title: "Shortcut: Fn/Globe", action: nil, keyEquivalent: "")
+    let shortcut = NSMenuItem(title: "Shortcuts: Fn/Globe or Right Option", action: nil, keyEquivalent: "")
     shortcut.isEnabled = false
     menu.addItem(shortcut)
+
+    let status = NSMenuItem(title: statusTitle, action: nil, keyEquivalent: "")
+    status.isEnabled = false
+    menu.addItem(status)
 
     menu.addItem(.separator())
 
@@ -1238,16 +1257,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, ShortcutMonito
 
     let test = NSMenuItem(title: "Test Mute", action: #selector(testMute(_:)), keyEquivalent: "")
     test.target = self
+    test.isEnabled = !isMutedByShortcut
     menu.addItem(test)
 
     menu.addItem(iconSubmenu())
     menu.addItem(permissionSubmenu())
 
     menu.addItem(.separator())
-
-    let codexSettings = NSMenuItem(title: "Codex Dictation Settings", action: #selector(openCodexDictationSettings(_:)), keyEquivalent: "")
-    codexSettings.target = self
-    menu.addItem(codexSettings)
 
     let logs = NSMenuItem(title: "Open Logs", action: #selector(openLogs(_:)), keyEquivalent: "")
     logs.target = self
@@ -1282,23 +1298,15 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, ShortcutMonito
     let item = NSMenuItem(title: "Permissions", action: nil, keyEquivalent: "")
     let submenu = NSMenu()
 
-    let keyboardEventsActive = monitor?.isRunning == true
-    let inputGranted = keyboardEventsActive || CGPreflightListenEventAccess()
-    let inputTitle = keyboardEventsActive ? "Input Monitoring: OK (active)" : "Input Monitoring: \(inputGranted ? "OK" : "Missing")"
+    let inputGranted = CGPreflightListenEventAccess()
+    let inputTitle = "Input Monitoring: \(inputGranted ? "OK" : "Missing")"
     let input = NSMenuItem(title: inputTitle, action: #selector(openInputMonitoring(_:)), keyEquivalent: "")
     input.target = self
     submenu.addItem(input)
 
-    let accessibilityOptions = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: false] as CFDictionary
-    let accessibilityGranted = AXIsProcessTrustedWithOptions(accessibilityOptions)
-    let accessibilityTitle = accessibilityGranted ? "Accessibility: OK" : "Accessibility: Not required"
-    let accessibility = NSMenuItem(title: accessibilityTitle, action: #selector(openAccessibility(_:)), keyEquivalent: "")
-    accessibility.target = self
-    submenu.addItem(accessibility)
-
     submenu.addItem(.separator())
 
-    let request = NSMenuItem(title: "Request Permissions", action: #selector(requestPermissions(_:)), keyEquivalent: "")
+    let request = NSMenuItem(title: "Request Input Monitoring", action: #selector(requestPermissions(_:)), keyEquivalent: "")
     request.target = self
     submenu.addItem(request)
 
@@ -1320,6 +1328,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, ShortcutMonito
   }
 
   private func startMonitor() {
+    guard monitor == nil else {
+      return
+    }
+
     do {
       let shortcutMonitor = ShortcutMonitor(
         options: options,
@@ -1329,26 +1341,117 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, ShortcutMonito
       shortcutMonitor.delegate = self
       try shortcutMonitor.start()
       monitor = shortcutMonitor
+      permissionRetryTimer?.invalidate()
+      permissionRetryTimer = nil
       rebuildMenu()
     } catch {
       Logger.error("codex-dictate-companion: \(error)")
+      schedulePermissionRetry()
     }
+  }
+
+  private var statusTitle: String {
+    if isMutedByShortcut {
+      return "Status: Muting Output"
+    }
+    if !CGPreflightListenEventAccess() || monitor == nil {
+      return CGPreflightListenEventAccess()
+        ? "Status: Paused"
+        : "Status: Input Monitoring Required"
+    }
+    return preferences.monitorEnabled ? "Status: Ready" : "Status: Disabled"
+  }
+
+  private func schedulePermissionRetry() {
+    guard permissionRetryTimer == nil else {
+      return
+    }
+
+    let timer = Timer(timeInterval: 1, repeats: true) { [weak self] timer in
+      guard let self else {
+        timer.invalidate()
+        return
+      }
+
+      guard CGPreflightListenEventAccess() else {
+        return
+      }
+
+      self.startMonitor()
+    }
+    RunLoop.main.add(timer, forMode: .common)
+    permissionRetryTimer = timer
+  }
+
+  private func installSafetyObservers() {
+    let workspaceCenter = NSWorkspace.shared.notificationCenter
+    workspaceCenter.addObserver(
+      self,
+      selector: #selector(systemSessionWillChange(_:)),
+      name: NSWorkspace.willSleepNotification,
+      object: nil
+    )
+    workspaceCenter.addObserver(
+      self,
+      selector: #selector(systemSessionWillChange(_:)),
+      name: NSWorkspace.sessionDidResignActiveNotification,
+      object: nil
+    )
+    workspaceCenter.addObserver(
+      self,
+      selector: #selector(systemSessionDidBecomeActive(_:)),
+      name: NSWorkspace.didWakeNotification,
+      object: nil
+    )
+    workspaceCenter.addObserver(
+      self,
+      selector: #selector(systemSessionDidBecomeActive(_:)),
+      name: NSWorkspace.sessionDidBecomeActiveNotification,
+      object: nil
+    )
+
+  }
+
+  @objc private func systemSessionWillChange(_ notification: Notification) {
+    monitor?.stop(reason: notification.name.rawValue)
+    monitor = nil
+    isMutedByShortcut = false
+    updateStatusIcon()
+  }
+
+  @objc private func systemSessionDidBecomeActive(_ notification: Notification) {
+    guard !isShuttingDown else {
+      return
+    }
+    startMonitor()
+  }
+
+  private func shutdown(reason: String) {
+    guard !isShuttingDown else {
+      return
+    }
+
+    isShuttingDown = true
+    permissionRetryTimer?.invalidate()
+    permissionRetryTimer = nil
+    monitor?.stop(reason: reason)
+    monitor = nil
+    audio.restore()
   }
 }
 
 private let eventCallback: CGEventTapCallBack = { _, type, event, userInfo in
   if let userInfo {
     let monitor = Unmanaged<ShortcutMonitor>.fromOpaque(userInfo).takeUnretainedValue()
-    monitor.handle(type: type, event: event)
+    let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
+    let flags = event.flags
+
+    DispatchQueue.main.async { [weak monitor] in
+      monitor?.handle(type: type, keyCode: keyCode, flags: flags)
+    }
   }
 
   return Unmanaged.passUnretained(event)
-}
-
-private extension CGEventFlags {
-  func containsAll(_ flags: CGEventFlags) -> Bool {
-    intersection(flags) == flags
-  }
 }
 
 private func parseOptions() throws -> Options {
@@ -1370,101 +1473,20 @@ private func parseOptions() throws -> Options {
       options.checkPermissions = true
     case "--request-permissions":
       options.requestPermissions = true
-    case "--shortcut":
-      guard !args.isEmpty else {
-        throw AppError.invalidShortcut("--shortcut requires a value")
-      }
-      options.shortcut = try parseShortcut(args.removeFirst())
     default:
-      throw AppError.invalidShortcut(arg)
+      throw AppError.invalidArgument(arg)
     }
   }
 
   return options
 }
 
-private func parseShortcut(_ value: String) throws -> Shortcut {
-  let normalized = value
-    .trimmingCharacters(in: .whitespacesAndNewlines)
-    .lowercased()
-
-  if normalized == "fn" || normalized == "globe" {
-    return .fn
-  }
-
-  if normalized.hasPrefix("keycode:") {
-    let rawCode = String(normalized.dropFirst("keycode:".count))
-    guard let code = UInt16(rawCode) else {
-      throw AppError.invalidKeyCode(rawCode)
-    }
-    return .key(keyCode: CGKeyCode(code), modifiers: [])
-  }
-
-  var modifiers = CGEventFlags()
-  var keyCode: CGKeyCode?
-
-  for part in normalized.split(separator: "+").map(String.init) {
-    switch part {
-    case "cmd", "command":
-      modifiers.insert(.maskCommand)
-    case "ctrl", "control":
-      modifiers.insert(.maskControl)
-    case "alt", "option":
-      modifiers.insert(.maskAlternate)
-    case "shift":
-      modifiers.insert(.maskShift)
-    case "space":
-      keyCode = 49
-    default:
-      if let code = knownKeyCodes[part] {
-        keyCode = code
-      } else {
-        throw AppError.invalidShortcut(value)
-      }
-    }
-  }
-
-  guard let keyCode else {
-    throw AppError.invalidShortcut(value)
-  }
-
-  return .key(keyCode: keyCode, modifiers: modifiers)
-}
-
-private let knownKeyCodes: [String: CGKeyCode] = [
-  "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7, "c": 8, "v": 9,
-  "b": 11, "q": 12, "w": 13, "e": 14, "r": 15, "y": 16, "t": 17,
-  "1": 18, "2": 19, "3": 20, "4": 21, "6": 22, "5": 23, "=": 24, "9": 25,
-  "7": 26, "-": 27, "8": 28, "0": 29, "]": 30, "o": 31, "u": 32, "[": 33,
-  "i": 34, "p": 35, "l": 37, "j": 38, "'": 39, "k": 40, ";": 41, "\\": 42,
-  ",": 43, "/": 44, "n": 45, "m": 46, ".": 47, "`": 50,
-  "return": 36, "tab": 48, "delete": 51, "escape": 53
-]
-
-private func describe(_ shortcut: Shortcut) -> String {
-  switch shortcut {
-  case .fn:
-    return "Fn/Globe"
-  case .key(let keyCode, let modifiers):
-    var parts: [String] = []
-    if modifiers.contains(.maskCommand) { parts.append("cmd") }
-    if modifiers.contains(.maskControl) { parts.append("ctrl") }
-    if modifiers.contains(.maskAlternate) { parts.append("option") }
-    if modifiers.contains(.maskShift) { parts.append("shift") }
-    parts.append("keycode:\(keyCode)")
-    return parts.joined(separator: "+")
-  }
-}
-
 private func printHelp() {
   print("""
-  Usage: codex-dictate-companion [--shortcut fn|ctrl+space|cmd+shift+x|keycode:49] [--show-events] [--test-mute] [--check-permissions] [--request-permissions]
+  Usage: codex-dictate-companion [--show-events] [--test-mute] [--check-permissions] [--request-permissions]
 
-  Hold the configured Codex dictation shortcut to mute macOS output audio.
-  Release it to restore the previous mute state instantly.
-
-  Defaults:
-    --shortcut fn
+  Press Fn/Globe or right Option once to mute macOS output audio.
+  Press either shortcut again to restore the previous audio state.
   """)
 }
 
@@ -1473,28 +1495,23 @@ private func preparePermissionRequestIfNeeded() {
   NSApplication.shared.activate(ignoringOtherApps: true)
 }
 
-private func permissionSummary(promptForAccessibility: Bool) -> String {
-  let accessibilityOptions = [
-    kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: promptForAccessibility
-  ] as CFDictionary
-  let accessibilityGranted = AXIsProcessTrustedWithOptions(accessibilityOptions)
-  return "permissions inputMonitoring=\(CGPreflightListenEventAccess()) accessibility=\(accessibilityGranted)"
+private func permissionSummary() -> String {
+  "permissions inputMonitoring=\(CGPreflightListenEventAccess())"
 }
 
 do {
   let options = try parseOptions()
 
   if options.checkPermissions {
-    preparePermissionRequestIfNeeded()
-    Logger.info("codex-dictate-companion: \(permissionSummary(promptForAccessibility: false))")
+    Logger.info("codex-dictate-companion: \(permissionSummary())")
     exit(0)
   }
 
   if options.requestPermissions {
     preparePermissionRequestIfNeeded()
-    Logger.info("codex-dictate-companion: requesting Input Monitoring and Accessibility permissions")
+    Logger.info("codex-dictate-companion: requesting Input Monitoring permission")
     _ = CGRequestListenEventAccess()
-    Logger.info("codex-dictate-companion: \(permissionSummary(promptForAccessibility: true))")
+    Logger.info("codex-dictate-companion: \(permissionSummary())")
     exit(0)
   }
 

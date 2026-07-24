@@ -3,10 +3,11 @@ set -euo pipefail
 
 MODE="${1:-run}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PROJECT_PATH="$ROOT_DIR/CodexDictateCompanion.xcodeproj"
 SCHEME="CodexDictateCompanion"
 CONFIGURATION="Release"
 DERIVED_DATA_PATH="${TMPDIR:-/private/tmp}/codex-dictate-companion-xcode"
+STAGED_SOURCE_DIR="$DERIVED_DATA_PATH/Source"
+PROJECT_PATH="$STAGED_SOURCE_DIR/CodexDictateCompanion.xcodeproj"
 APP_NAME="Codex Dictate Companion"
 APP_BUNDLE="$DERIVED_DATA_PATH/Build/Products/$CONFIGURATION/$APP_NAME.app"
 APP_BINARY="$APP_BUNDLE/Contents/MacOS/$APP_NAME"
@@ -29,13 +30,21 @@ stop_existing() {
   pkill -x codex-dictate-companion >/dev/null 2>&1 || true
 }
 
-clean_xattrs() {
-  xattr -cr "$ROOT_DIR/Resources" "$ROOT_DIR/CodexDictateCompanion" "$ROOT_DIR/CodexDictateCompanion.xcodeproj" >/dev/null 2>&1 || true
+stage_source() {
+  rm -rf "$STAGED_SOURCE_DIR"
+  mkdir -p "$STAGED_SOURCE_DIR"
+  cp -R \
+    "$ROOT_DIR/CodexDictateCompanion.xcodeproj" \
+    "$ROOT_DIR/CodexDictateCompanion" \
+    "$ROOT_DIR/Sources" \
+    "$ROOT_DIR/Resources" \
+    "$STAGED_SOURCE_DIR/"
+  xattr -cr "$STAGED_SOURCE_DIR" >/dev/null 2>&1 || true
 }
 
 build_app() {
   select_xcode
-  clean_xattrs
+  stage_source
 
   xcodebuild \
     -project "$PROJECT_PATH" \
@@ -43,7 +52,6 @@ build_app() {
     -configuration "$CONFIGURATION" \
     -destination "generic/platform=macOS" \
     -derivedDataPath "$DERIVED_DATA_PATH" \
-    -allowProvisioningUpdates \
     ARCHS=arm64 \
     ONLY_ACTIVE_ARCH=NO \
     DEVELOPMENT_TEAM="$TEAM_ID" \
@@ -54,10 +62,14 @@ open_app() {
   /usr/bin/open -n "$APP_BUNDLE"
 }
 
-stop_existing
+if [[ "$MODE" != "build" ]]; then
+  stop_existing
+fi
 build_app
 
 case "$MODE" in
+  build)
+    ;;
   run)
     open_app
     ;;
@@ -74,7 +86,7 @@ case "$MODE" in
     pgrep -f "/Contents/MacOS/$APP_NAME" >/dev/null
     ;;
   *)
-    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify]" >&2
+    echo "usage: $0 [build|run|--debug|--logs|--telemetry|--verify]" >&2
     exit 2
     ;;
 esac

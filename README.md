@@ -1,71 +1,29 @@
 # Codex Dictate Companion
 
-Native macOS menu bar companion for Codex dictation.
+Personal native macOS menu bar companion for Codex voice input.
 
-Hold your Codex dictation shortcut, by default `Fn/Globe`, and Codex Dictate Companion mutes macOS output audio while the key is held. Release the key and your previous mute state is restored instantly.
-
-## Download
-
-Public builds are distributed for free through GitHub Releases:
-
-```text
-https://github.com/augiefra/fn-codex-silence/releases
-```
-
-Download the `Codex-Dictate-Companion-<version>-arm64.zip`, unzip it, drag the
-app to Applications, launch it, then grant Input Monitoring when macOS asks.
-
-Release artifacts must be signed with a Developer ID Application certificate
-and notarized by Apple. See [Distribution](docs/DISTRIBUTION.md).
+Press `Fn/Globe` or the right `Option` key once and the app silences macOS output. Press either shortcut again and every modified output returns to its previous state. The key event is only observed, so Codex receives the same toggle-dictation shortcut.
 
 ## Behavior
 
-- Hold `Fn/Globe`: mute all available macOS output devices.
-- Release `Fn/Globe`: restore each output device to its previous state immediately.
-- Bluetooth outputs such as AirPods may not support the native mute flag, so the app falls back to setting output volume to `0` and restores the previous volume on release.
-- While the shortcut is held, the app keeps re-applying silence to all output devices so newly switched outputs are covered.
-- The app only mutes while the configured shortcut is physically held. It does not mute just because an app such as Discord, Google Meet, Zoom, or FaceTime is using the microphone.
-- AirPods Stereo Guard is enabled by default. While the companion is enabled, if the default input is AirPods or another Bluetooth microphone, the app keeps input routed to the best local non-Bluetooth microphone. This prevents Codex from opening the AirPods microphone path before dictation starts.
-- The key event is not consumed, so Codex still receives the dictation shortcut.
-- It mutes macOS output audio. It does not pause Spotify, MyCanal, YouTube, QuickTime, etc.
+- Only a physical `Fn/Globe` press from key code `63` or right `Option` press from key code `61` can toggle muting.
+- Releasing either shortcut does not change the audio state.
+- Left `Option`, arrow keys, and ordinary keyboard events cannot change the mute state.
+- Output is restored on the next shortcut press, disable, quit, session lock, sleep, or event-tap failure.
+- Bluetooth outputs such as AirPods use output volume `0` when their native mute control is unavailable.
+- AirPods Stereo Guard keeps dictation input on the best local non-Bluetooth microphone so AirPods remain in stereo output mode.
+- Microphone activity in Discord, Google Meet, Zoom, FaceTime, or another app never triggers output muting.
 
-## Menu Bar App
+The app silences system output; it does not pause the playing media.
 
-Codex Dictate Companion installs as:
+## Requirements
 
-```text
-~/Applications/Codex Dictate Companion.app
-```
-
-The menu bar app includes:
-
-- enable or disable the companion
-- enable or disable AirPods Stereo Guard
-- a native app icon in Finder and System Settings
-- check the active output and input devices
-- test mute
-- open permissions
-- open Codex dictation settings
-- open logs
-- choose one of three menu bar icons:
-  - Micro
-  - Wave
-  - Command
-
-The selected icon is saved in macOS preferences.
+- Apple Silicon Mac
+- macOS 13 or later
+- Xcode with the Apple Developer account for team `KX5QF45WFE`
+- Codex toggle dictation configured to `Fn/Globe` or right `Option`
 
 ## Install
-
-For normal users, prefer the downloadable GitHub Release.
-
-For local development:
-
-Requirements:
-
-- macOS 13 or later.
-- Apple Silicon Mac only. The app is built for `arm64`, not Intel.
-- Xcode, not only Command Line Tools.
-- An Apple Developer account signed into Xcode for automatic signing.
 
 ```sh
 git clone https://github.com/augiefra/fn-codex-silence.git
@@ -73,119 +31,83 @@ cd fn-codex-silence
 sh install.sh
 ```
 
-The installer:
-
-- builds the native macOS app with Xcode in release mode
-- uses a temporary Xcode DerivedData path outside the repo to avoid macOS Finder metadata breaking code signing
-- forces an Apple Silicon-only `arm64` build
-- signs the app with the configured Apple Development team
-- creates `~/Applications/Codex Dictate Companion.app`
-- creates `~/Library/LaunchAgents/com.augiefra.codex-dictate-companion.plist`
-- starts the app through LaunchServices with `/usr/bin/open -gj`
-- removes older `Fn Codex Silence` / `fn-codex-silence` local installs
-
-The project currently uses Apple Development signing with team `KX5QF45WFE`.
-For public distribution to another Mac without Xcode trust prompts, build with a
-Developer ID Application certificate and notarize the app.
-
-## Permissions
-
-macOS needs privacy permissions before the app can observe the Codex dictation shortcut.
-
-Grant these to `Codex Dictate Companion`:
-
-- Privacy & Security > Input Monitoring
-- Privacy & Security > Accessibility is optional. The app does not need to control the computer, but opening it can help if macOS prompts for both permissions.
-
-If the app does not appear automatically, use the menu bar item:
+The installer builds the Release app with Xcode, signs it with the configured development team, copies it to:
 
 ```text
-Permissions > Request Permissions
+~/Applications/Codex Dictate Companion.app
 ```
 
-or run:
+The installer creates one LaunchAgent that runs the app executable directly at login. No Hammerspoon helper or secondary process is used.
 
-```sh
-open -n "$HOME/Applications/Codex Dictate Companion.app" --args --request-permissions
-```
-
-If needed, add the app manually with the `+` button in System Settings.
-
-After replacing an older helper build with this Xcode-signed app, macOS may show
-the permission toggles as enabled while the new signed app still reports missing
-access. Remove the old entry, add `~/Applications/Codex Dictate Companion.app`
-again, then restart the app.
-
-After changing permissions, restart the app from the menu bar or run:
-
-```sh
-launchctl kickstart -k "gui/$(id -u)/com.augiefra.codex-dictate-companion"
-```
-
-## Configuration
-
-Default:
-
-```sh
-sh install.sh
-```
-
-This listens for `Fn/Globe`, matching Codex's default hold-to-dictate shortcut.
-
-To use another shortcut:
-
-```sh
-sh install.sh --shortcut ctrl+space
-```
-
-Supported shortcut formats:
-
-- `fn`
-- `globe`
-- `ctrl+space`
-- `cmd+shift+x`
-- `keycode:49`
-
-Use the same shortcut in Codex and Codex Dictate Companion.
-
-## Logs
-
-```sh
-tail -f "$HOME/Library/Logs/codex-dictate-companion/out.log"
-tail -f "$HOME/Library/Logs/codex-dictate-companion/launchd-error.log"
-```
-
-When `Fn` is detected, the log should show lines like:
+After a clean macOS installation, grant only:
 
 ```text
-codex-dictate-companion: muted MacBook Pro Speakers
-codex-dictate-companion: restored MacBook Pro Speakers to muted=false
+System Settings > Privacy & Security > Input Monitoring > Codex Dictate Companion
 ```
 
-## Diagnostics
+Accessibility permission is not required. The app automatically starts monitoring when macOS confirms Input Monitoring access.
 
-Check permissions:
+## Menu Bar
+
+The menu includes:
+
+- current status, output, input, and shortcuts
+- enable or disable the companion
+- enable or disable AirPods Stereo Guard
+- a 0.5-second mute test
+- Input Monitoring status and settings
+- three menu bar icons: Micro, Wave, and Command
+- logs and quit
+
+## Verification
+
+Run the automated shortcut-state tests:
+
+```sh
+swift test
+```
+
+Build the signed macOS app without installing or launching it:
+
+```sh
+script/build_and_run.sh build
+```
+
+Check Input Monitoring:
 
 ```sh
 "$HOME/Applications/Codex Dictate Companion.app/Contents/MacOS/Codex Dictate Companion" --check-permissions
 ```
 
-Trigger permission prompts:
+Check launch at login:
 
 ```sh
-open -n "$HOME/Applications/Codex Dictate Companion.app" --args --request-permissions
+launchctl print "gui/$(id -u)/com.augiefra.codex-dictate-companion"
 ```
 
-Test audio mute only:
+Test audio independently of Fn:
 
 ```sh
 "$HOME/Applications/Codex Dictate Companion.app/Contents/MacOS/Codex Dictate Companion" --test-mute
 ```
 
-Debug keyboard events:
+Show raw shortcut events while debugging:
 
 ```sh
-open -n "$HOME/Applications/Codex Dictate Companion.app" --args --shortcut fn --show-events
+open -n "$HOME/Applications/Codex Dictate Companion.app" --args --show-events
+```
+
+## Logs
+
+```sh
+tail -f "$HOME/Library/Logs/codex-dictate-companion/out.log"
+```
+
+Expected transitions:
+
+```text
+codex-dictate-companion: output muted by shortcut
+codex-dictate-companion: output restored by shortcut
 ```
 
 ## Uninstall
@@ -199,3 +121,7 @@ Remove logs too:
 ```sh
 sh uninstall.sh --remove-logs
 ```
+
+## Repository Policy
+
+GitHub is the source repository and backup for this personal app. Version `1.1.0` is not packaged or published as a downloadable GitHub Release.

@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		B00000000000000000000101 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000201 /* main.swift */; };
 		B00000000000000000000102 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000202 /* AppIcon.icns */; };
+		B00000000000000000000103 /* ToggleShortcutState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000206 /* ToggleShortcutState.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -17,6 +18,7 @@
 		B00000000000000000000203 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = CodexDictateCompanion/Info.plist; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000204 /* CodexDictateCompanion.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = CodexDictateCompanion/CodexDictateCompanion.entitlements; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000205 /* Codex Dictate Companion.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Codex Dictate Companion.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		B00000000000000000000206 /* ToggleShortcutState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/CodexDictateCompanion/ToggleShortcutState.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -42,6 +44,7 @@
 			isa = PBXGroup;
 			children = (
 				B00000000000000000000201 /* main.swift */,
+				B00000000000000000000206 /* ToggleShortcutState.swift */,
 				B00000000000000000000202 /* AppIcon.icns */,
 				B00000000000000000000203 /* Info.plist */,
 				B00000000000000000000204 /* CodexDictateCompanion.entitlements */,
@@ -150,6 +153,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B00000000000000000000101 /* main.swift in Sources */,
+				B00000000000000000000103 /* ToggleShortcutState.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

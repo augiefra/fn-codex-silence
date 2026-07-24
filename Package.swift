@@ -12,6 +12,10 @@ let package = Package(
   targets: [
     .executableTarget(
       name: "CodexDictateCompanion"
+    ),
+    .testTarget(
+      name: "CodexDictateCompanionTests",
+      dependencies: ["CodexDictateCompanion"]
     )
   ]
 )
