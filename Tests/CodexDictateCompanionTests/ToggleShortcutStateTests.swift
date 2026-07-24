@@ -6,55 +6,60 @@ final class ToggleShortcutStateTests: XCTestCase {
   func testFnTogglesOnlyOnPress() {
     var state = ToggleShortcutState()
 
-    XCTAssertTrue(
-      state.handle(type: .flagsChanged, keyCode: ToggleShortcutState.fnKeyCode, flags: [.maskSecondaryFn])
+    XCTAssertEqual(
+      state.handle(type: .flagsChanged, keyCode: ToggleShortcutState.fnKeyCode, flags: [.maskSecondaryFn]),
+      .classicDictation
     )
-    XCTAssertFalse(
+    XCTAssertNil(
       state.handle(type: .flagsChanged, keyCode: ToggleShortcutState.fnKeyCode, flags: [])
     )
-    XCTAssertTrue(
-      state.handle(type: .flagsChanged, keyCode: ToggleShortcutState.fnKeyCode, flags: [.maskSecondaryFn])
+    XCTAssertEqual(
+      state.handle(type: .flagsChanged, keyCode: ToggleShortcutState.fnKeyCode, flags: [.maskSecondaryFn]),
+      .classicDictation
     )
   }
 
   func testRightOptionTogglesOnlyOnPress() {
     var state = ToggleShortcutState()
 
-    XCTAssertTrue(
-      state.handle(type: .flagsChanged, keyCode: ToggleShortcutState.rightOptionKeyCode, flags: [.maskAlternate])
+    XCTAssertEqual(
+      state.handle(type: .flagsChanged, keyCode: ToggleShortcutState.rightOptionKeyCode, flags: [.maskAlternate]),
+      .voiceConversation
     )
-    XCTAssertFalse(
+    XCTAssertNil(
       state.handle(type: .flagsChanged, keyCode: ToggleShortcutState.rightOptionKeyCode, flags: [])
     )
-    XCTAssertTrue(
-      state.handle(type: .flagsChanged, keyCode: ToggleShortcutState.rightOptionKeyCode, flags: [.maskAlternate])
+    XCTAssertEqual(
+      state.handle(type: .flagsChanged, keyCode: ToggleShortcutState.rightOptionKeyCode, flags: [.maskAlternate]),
+      .voiceConversation
     )
   }
 
   func testLeftOptionNeverToggles() {
     var state = ToggleShortcutState()
 
-    XCTAssertFalse(state.handle(type: .flagsChanged, keyCode: 58, flags: [.maskAlternate]))
-    XCTAssertFalse(state.handle(type: .flagsChanged, keyCode: 58, flags: []))
+    XCTAssertNil(state.handle(type: .flagsChanged, keyCode: 58, flags: [.maskAlternate]))
+    XCTAssertNil(state.handle(type: .flagsChanged, keyCode: 58, flags: []))
   }
 
   func testArrowKeysAndOrdinaryEventsNeverToggle() {
     var state = ToggleShortcutState()
 
     for keyCode: CGKeyCode in [123, 124, 125, 126] {
-      XCTAssertFalse(state.handle(type: .keyDown, keyCode: keyCode, flags: []))
-      XCTAssertFalse(state.handle(type: .keyUp, keyCode: keyCode, flags: []))
+      XCTAssertNil(state.handle(type: .keyDown, keyCode: keyCode, flags: []))
+      XCTAssertNil(state.handle(type: .keyUp, keyCode: keyCode, flags: []))
     }
-    XCTAssertFalse(state.handle(type: .flagsChanged, keyCode: 56, flags: [.maskShift]))
+    XCTAssertNil(state.handle(type: .flagsChanged, keyCode: 56, flags: [.maskShift]))
   }
 
   func testHeldModifierDoesNotToggleTwice() {
     var state = ToggleShortcutState()
 
-    XCTAssertTrue(
-      state.handle(type: .flagsChanged, keyCode: ToggleShortcutState.fnKeyCode, flags: [.maskSecondaryFn])
+    XCTAssertEqual(
+      state.handle(type: .flagsChanged, keyCode: ToggleShortcutState.fnKeyCode, flags: [.maskSecondaryFn]),
+      .classicDictation
     )
-    XCTAssertFalse(
+    XCTAssertNil(
       state.handle(type: .flagsChanged, keyCode: ToggleShortcutState.fnKeyCode, flags: [.maskSecondaryFn])
     )
   }
@@ -62,14 +67,16 @@ final class ToggleShortcutStateTests: XCTestCase {
   func testRightOptionReleaseIsIgnoredWhileLeftOptionStaysDown() {
     var state = ToggleShortcutState()
 
-    XCTAssertTrue(
+    XCTAssertEqual(
+      state.handle(type: .flagsChanged, keyCode: ToggleShortcutState.rightOptionKeyCode, flags: [.maskAlternate]),
+      .voiceConversation
+    )
+    XCTAssertNil(
       state.handle(type: .flagsChanged, keyCode: ToggleShortcutState.rightOptionKeyCode, flags: [.maskAlternate])
     )
-    XCTAssertFalse(
-      state.handle(type: .flagsChanged, keyCode: ToggleShortcutState.rightOptionKeyCode, flags: [.maskAlternate])
-    )
-    XCTAssertTrue(
-      state.handle(type: .flagsChanged, keyCode: ToggleShortcutState.rightOptionKeyCode, flags: [.maskAlternate])
+    XCTAssertEqual(
+      state.handle(type: .flagsChanged, keyCode: ToggleShortcutState.rightOptionKeyCode, flags: [.maskAlternate]),
+      .voiceConversation
     )
   }
 }

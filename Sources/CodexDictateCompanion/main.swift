@@ -9,7 +9,7 @@ private enum AppConstants {
   static let logDirectoryName = "codex-dictate-companion"
 }
 
-private enum Logger {
+enum Logger {
   private static var logURL: URL {
     FileManager.default.homeDirectoryForCurrentUser
       .appendingPathComponent("Library/Logs/\(AppConstants.logDirectoryName)", isDirectory: true)
@@ -951,9 +951,14 @@ private final class AudioInputRouteController {
   }
 }
 
+private enum CompanionAudioState: Equatable {
+  case ready
+  case mutingOutput
+  case isolatingVoice
+}
+
 private protocol ShortcutMonitorDelegate: AnyObject {
-  func shortcutMonitorDidMute()
-  func shortcutMonitorDidRestore()
+  func shortcutMonitorDidChangeAudioState(_ state: CompanionAudioState)
 }
 
 private final class ShortcutMonitor {
@@ -977,6 +982,7 @@ private final class ShortcutMonitor {
   private let showEvents: Bool
   var airPodsStereoGuardEnabled: Bool
   private let audio = AudioMuteController()
+  private let voiceIsolation = VoiceAudioIsolationController()
   private let inputRoute = AudioInputRouteController()
   private var shortcutState = ToggleShortcutState()
   private var isOutputMuted = false
@@ -1035,28 +1041,67 @@ private final class ShortcutMonitor {
       return
     }
 
-    let shouldToggle = enabled
-      && shortcutState.handle(type: type, keyCode: keyCode, flags: flags)
+    let action = enabled
+      ? shortcutState.handle(type: type, keyCode: keyCode, flags: flags)
+      : nil
 
     if showEvents {
-      Logger.info("event=\(type.rawValue) keyCode=\(keyCode) flags=\(flags.rawValue) fn=\(flags.contains(.maskSecondaryFn)) option=\(flags.contains(.maskAlternate)) toggle=\(shouldToggle)")
+      Logger.info("event=\(type.rawValue) keyCode=\(keyCode) flags=\(flags.rawValue) fn=\(flags.contains(.maskSecondaryFn)) option=\(flags.contains(.maskAlternate)) action=\(String(describing: action))")
     }
 
-    guard shouldToggle else {
+    guard let action else {
+      return
+    }
+
+    switch action {
+    case .classicDictation:
+      toggleClassicDictation()
+    case .voiceConversation:
+      toggleVoiceConversation()
+    }
+  }
+
+  private func toggleClassicDictation() {
+    if isOutputMuted {
+      Logger.info("codex-dictate-companion: output restored by Fn/Globe")
+      audio.restore()
+      isOutputMuted = false
+      delegate?.shortcutMonitorDidChangeAudioState(.ready)
+    } else {
+      if voiceIsolation.isActive {
+        voiceIsolation.stop()
+      }
+      inputRoute.protectAirPodsStereoIfNeeded(enabled: airPodsStereoGuardEnabled)
+      Logger.info("codex-dictate-companion: all output muted by Fn/Globe")
+      audio.mute()
+      isOutputMuted = true
+      delegate?.shortcutMonitorDidChangeAudioState(.mutingOutput)
+    }
+  }
+
+  private func toggleVoiceConversation() {
+    if voiceIsolation.isActive {
+      Logger.info("codex-dictate-companion: Voice isolation stopped by right Option")
+      voiceIsolation.stop()
+      delegate?.shortcutMonitorDidChangeAudioState(.ready)
       return
     }
 
     if isOutputMuted {
-      Logger.info("codex-dictate-companion: output restored by shortcut")
       audio.restore()
       isOutputMuted = false
-      delegate?.shortcutMonitorDidRestore()
-    } else {
-      inputRoute.protectAirPodsStereoIfNeeded(enabled: airPodsStereoGuardEnabled)
-      Logger.info("codex-dictate-companion: output muted by shortcut")
-      audio.mute()
-      isOutputMuted = true
-      delegate?.shortcutMonitorDidMute()
+    }
+
+    inputRoute.protectAirPodsStereoIfNeeded(enabled: airPodsStereoGuardEnabled)
+
+    do {
+      try voiceIsolation.start()
+      Logger.info("codex-dictate-companion: Voice isolation active; only Codex remains audible")
+      delegate?.shortcutMonitorDidChangeAudioState(.isolatingVoice)
+    } catch {
+      voiceIsolation.stop()
+      Logger.error("codex-dictate-companion: \(error)")
+      delegate?.shortcutMonitorDidChangeAudioState(.ready)
     }
   }
 
@@ -1088,13 +1133,14 @@ private final class ShortcutMonitor {
 
   private func resetShortcut(reason: String) {
     shortcutState.reset()
-    let wasMuted = isOutputMuted
+    let wasActive = isOutputMuted || voiceIsolation.isActive
     audio.restore()
+    voiceIsolation.stop()
     isOutputMuted = false
 
-    if wasMuted {
+    if wasActive {
       Logger.info("codex-dictate-companion: restored audio because \(reason)")
-      delegate?.shortcutMonitorDidRestore()
+      delegate?.shortcutMonitorDidChangeAudioState(.ready)
     }
   }
 
@@ -1110,7 +1156,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, ShortcutMonito
   private let inputRoute = AudioInputRouteController()
   private var statusItem: NSStatusItem?
   private var monitor: ShortcutMonitor?
-  private var isMutedByShortcut = false
+  private var shortcutAudioState = CompanionAudioState.ready
   private var permissionRetryTimer: Timer?
   private var isShuttingDown = false
 
@@ -1130,13 +1176,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, ShortcutMonito
     shutdown(reason: "application terminating")
   }
 
-  func shortcutMonitorDidMute() {
-    isMutedByShortcut = true
-    updateStatusIcon()
-  }
-
-  func shortcutMonitorDidRestore() {
-    isMutedByShortcut = false
+  func shortcutMonitorDidChangeAudioState(_ state: CompanionAudioState) {
+    shortcutAudioState = state
+    rebuildMenu()
     updateStatusIcon()
   }
 
@@ -1235,9 +1277,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, ShortcutMonito
     input.isEnabled = false
     menu.addItem(input)
 
-    let shortcut = NSMenuItem(title: "Shortcuts: Fn/Globe or Right Option", action: nil, keyEquivalent: "")
-    shortcut.isEnabled = false
-    menu.addItem(shortcut)
+    let classicShortcut = NSMenuItem(title: "Fn/Globe: Dictation (mute all)", action: nil, keyEquivalent: "")
+    classicShortcut.isEnabled = false
+    menu.addItem(classicShortcut)
+
+    let voiceShortcut = NSMenuItem(title: "Right Option: Voice (Codex only)", action: nil, keyEquivalent: "")
+    voiceShortcut.isEnabled = false
+    menu.addItem(voiceShortcut)
 
     let status = NSMenuItem(title: statusTitle, action: nil, keyEquivalent: "")
     status.isEnabled = false
@@ -1257,7 +1303,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, ShortcutMonito
 
     let test = NSMenuItem(title: "Test Mute", action: #selector(testMute(_:)), keyEquivalent: "")
     test.target = self
-    test.isEnabled = !isMutedByShortcut
+    test.isEnabled = shortcutAudioState == .ready
     menu.addItem(test)
 
     menu.addItem(iconSubmenu())
@@ -1324,7 +1370,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, ShortcutMonito
     image?.isTemplate = true
     button.image = image
     button.title = image == nil ? "CD" : ""
-    button.contentTintColor = isMutedByShortcut ? .systemBlue : nil
+    button.contentTintColor = shortcutAudioState == .ready ? nil : .systemBlue
   }
 
   private func startMonitor() {
@@ -1351,8 +1397,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, ShortcutMonito
   }
 
   private var statusTitle: String {
-    if isMutedByShortcut {
-      return "Status: Muting Output"
+    switch shortcutAudioState {
+    case .mutingOutput:
+      return "Status: Dictation - All Output Muted"
+    case .isolatingVoice:
+      return "Status: Voice - Codex Only"
+    case .ready:
+      break
     }
     if !CGPreflightListenEventAccess() || monitor == nil {
       return CGPreflightListenEventAccess()
@@ -1415,7 +1466,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, ShortcutMonito
   @objc private func systemSessionWillChange(_ notification: Notification) {
     monitor?.stop(reason: notification.name.rawValue)
     monitor = nil
-    isMutedByShortcut = false
+    shortcutAudioState = .ready
     updateStatusIcon()
   }
 
@@ -1485,8 +1536,8 @@ private func printHelp() {
   print("""
   Usage: codex-dictate-companion [--show-events] [--test-mute] [--check-permissions] [--request-permissions]
 
-  Press Fn/Globe or right Option once to mute macOS output audio.
-  Press either shortcut again to restore the previous audio state.
+  Fn/Globe toggles classic dictation with all output muted.
+  Right Option toggles Voice mode with only Codex remaining audible.
   """)
 }
 

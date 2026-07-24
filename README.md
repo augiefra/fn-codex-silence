@@ -2,14 +2,20 @@
 
 Personal native macOS menu bar companion for Codex voice input.
 
-Press `Fn/Globe` or the right `Option` key once and the app silences macOS output. Press either shortcut again and every modified output returns to its previous state. The key event is only observed, so Codex receives the same toggle-dictation shortcut.
+The two Codex shortcuts now have distinct audio modes:
+
+- Press `Fn/Globe` once for classic dictation: all macOS output is silenced. Press it again to restore output.
+- Press right `Option` once for Codex Voice: other apps are silenced while Codex remains audible. Press it again to restore every app.
+
+The key events are only observed, so Codex still receives the same shortcuts.
 
 ## Behavior
 
-- Only a physical `Fn/Globe` press from key code `63` or right `Option` press from key code `61` can toggle muting.
+- Only a physical `Fn/Globe` press from key code `63` or right `Option` press from key code `61` can change the audio mode.
 - Releasing either shortcut does not change the audio state.
 - Left `Option`, arrow keys, and ordinary keyboard events cannot change the mute state.
 - Output is restored on the next shortcut press, disable, quit, session lock, sleep, or event-tap failure.
+- Voice mode uses a private Core Audio process tap and allows both the main Codex app and its audio helper.
 - Bluetooth outputs such as AirPods use output volume `0` when their native mute control is unavailable.
 - AirPods Stereo Guard keeps dictation input on the best local non-Bluetooth microphone so AirPods remain in stereo output mode.
 - Microphone activity in Discord, Google Meet, Zoom, FaceTime, or another app never triggers output muting.
@@ -19,7 +25,7 @@ The app silences system output; it does not pause the playing media.
 ## Requirements
 
 - Apple Silicon Mac
-- macOS 13 or later
+- macOS 26 or later
 - Xcode with the Apple Developer account for team `KX5QF45WFE`
 - Codex toggle dictation configured to `Fn/Globe` or right `Option`
 
@@ -39,19 +45,20 @@ The installer builds the Release app with Xcode, signs it with the configured de
 
 The installer creates one LaunchAgent that runs the app executable directly at login. No Hammerspoon helper or secondary process is used.
 
-After a clean macOS installation, grant only:
+After a clean macOS installation, grant:
 
 ```text
 System Settings > Privacy & Security > Input Monitoring > Codex Dictate Companion
+System Settings > Privacy & Security > Screen & System Audio Recording > Codex Dictate Companion
 ```
 
-Accessibility permission is not required. The app automatically starts monitoring when macOS confirms Input Monitoring access.
+The second permission is requested the first time right `Option` activates Voice isolation. Accessibility permission is not required. The app automatically starts monitoring when macOS confirms Input Monitoring access.
 
 ## Menu Bar
 
 The menu includes:
 
-- current status, output, input, and shortcuts
+- current status, output, input, and the two shortcut modes
 - enable or disable the companion
 - enable or disable AirPods Stereo Guard
 - a 0.5-second mute test
@@ -106,8 +113,8 @@ tail -f "$HOME/Library/Logs/codex-dictate-companion/out.log"
 Expected transitions:
 
 ```text
-codex-dictate-companion: output muted by shortcut
-codex-dictate-companion: output restored by shortcut
+codex-dictate-companion: all output muted by Fn/Globe
+codex-dictate-companion: Voice isolation active; only Codex remains audible
 ```
 
 ## Uninstall
@@ -124,4 +131,4 @@ sh uninstall.sh --remove-logs
 
 ## Repository Policy
 
-GitHub is the source repository and backup for this personal app. Version `1.1.0` is not packaged or published as a downloadable GitHub Release.
+GitHub is the source repository and backup for this personal app. Version `1.2.0` is not packaged or published as a downloadable GitHub Release.

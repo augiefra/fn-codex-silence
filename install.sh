@@ -144,8 +144,9 @@ launchctl kickstart -k "gui/$(id -u)/com.augiefra.codex-dictate-companion"
 
 echo "Installed $APP_BUNDLE"
 echo "Loaded LaunchAgent $PLIST_TARGET"
-echo "Shortcuts: physical Fn/Globe key or right Option key"
+echo "Fn/Globe: classic dictation with all output muted"
+echo "Right Option: Codex Voice with other applications silenced"
 echo
 echo "Use the menu bar icon to check permissions, test mute, and choose one of three icons."
-echo "If macOS asks for Input Monitoring permission, grant it to Codex Dictate Companion."
+echo "Grant Input Monitoring, then grant Screen & System Audio Recording on the first Voice isolation."
 echo "Logs: $LOG_DIR"

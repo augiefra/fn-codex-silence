@@ -18,17 +18,19 @@
   <key>CFBundlePackageType</key>
   <string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.1.0</string>
+  <string>1.2.0</string>
   <key>CFBundleVersion</key>
-  <string>6</string>
+  <string>7</string>
   <key>LSMinimumSystemVersion</key>
-  <string>13.0</string>
+  <string>26.0</string>
   <key>LSApplicationCategoryType</key>
   <string>public.app-category.utilities</string>
   <key>LSUIElement</key>
   <true/>
   <key>NSInputMonitoringUsageDescription</key>
-  <string>Codex Dictate Companion observes your Codex dictation shortcut so it can mute audio while the key is held.</string>
+  <string>Codex Dictate Companion observes the Fn/Globe and right Option shortcuts used with Codex voice input.</string>
+  <key>NSAudioCaptureUsageDescription</key>
+  <string>Codex Dictate Companion accesses application audio to silence other apps while keeping Codex Voice audible.</string>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
 </dict>

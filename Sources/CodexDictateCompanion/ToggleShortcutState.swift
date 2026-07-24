@@ -1,5 +1,10 @@
 import CoreGraphics
 
+enum ShortcutAction: Equatable {
+  case classicDictation
+  case voiceConversation
+}
+
 struct ToggleShortcutState {
   static let fnKeyCode = CGKeyCode(63)
   static let rightOptionKeyCode = CGKeyCode(61)
@@ -11,9 +16,9 @@ struct ToggleShortcutState {
     type: CGEventType,
     keyCode: CGKeyCode,
     flags: CGEventFlags
-  ) -> Bool {
+  ) -> ShortcutAction? {
     guard type == .flagsChanged else {
-      return false
+      return nil
     }
 
     let fnFlagIsDown = flags.contains(.maskSecondaryFn)
@@ -29,27 +34,27 @@ struct ToggleShortcutState {
     switch keyCode {
     case Self.fnKeyCode:
       guard fnFlagIsDown, !fnIsDown else {
-        return false
+        return nil
       }
 
       fnIsDown = true
-      return true
+      return .classicDictation
 
     case Self.rightOptionKeyCode:
       if rightOptionIsDown {
         rightOptionIsDown = false
-        return false
+        return nil
       }
 
       guard optionFlagIsDown else {
-        return false
+        return nil
       }
 
       rightOptionIsDown = true
-      return true
+      return .voiceConversation
 
     default:
-      return false
+      return nil
     }
   }
 

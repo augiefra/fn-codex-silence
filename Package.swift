@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
   name: "codex-dictate-companion",
   platforms: [
-    .macOS(.v13)
+    .macOS("26.0")
   ],
   products: [
     .executable(name: "codex-dictate-companion", targets: ["CodexDictateCompanion"])

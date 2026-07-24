@@ -10,6 +10,7 @@
 		B00000000000000000000101 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000201 /* main.swift */; };
 		B00000000000000000000102 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000202 /* AppIcon.icns */; };
 		B00000000000000000000103 /* ToggleShortcutState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000206 /* ToggleShortcutState.swift */; };
+		B00000000000000000000104 /* VoiceAudioIsolationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000207 /* VoiceAudioIsolationController.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -19,6 +20,7 @@
 		B00000000000000000000204 /* CodexDictateCompanion.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = CodexDictateCompanion/CodexDictateCompanion.entitlements; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000205 /* Codex Dictate Companion.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Codex Dictate Companion.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		B00000000000000000000206 /* ToggleShortcutState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/CodexDictateCompanion/ToggleShortcutState.swift; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000207 /* VoiceAudioIsolationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/CodexDictateCompanion/VoiceAudioIsolationController.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -45,6 +47,7 @@
 			children = (
 				B00000000000000000000201 /* main.swift */,
 				B00000000000000000000206 /* ToggleShortcutState.swift */,
+				B00000000000000000000207 /* VoiceAudioIsolationController.swift */,
 				B00000000000000000000202 /* AppIcon.icns */,
 				B00000000000000000000203 /* Info.plist */,
 				B00000000000000000000204 /* CodexDictateCompanion.entitlements */,
@@ -154,6 +157,7 @@
 			files = (
 				B00000000000000000000101 /* main.swift in Sources */,
 				B00000000000000000000103 /* ToggleShortcutState.swift in Sources */,
+				B00000000000000000000104 /* VoiceAudioIsolationController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -212,7 +216,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				ONLY_ACTIVE_ARCH = NO;
 				SDKROOT = macosx;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
@@ -266,7 +270,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				ONLY_ACTIVE_ARCH = NO;
 				SDKROOT = macosx;
 				SWIFT_COMPILATION_MODE = wholemodule;
@@ -291,7 +295,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				ONLY_ACTIVE_ARCH = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.augiefra.codex-dictate-companion";
 				PRODUCT_NAME = "Codex Dictate Companion";
@@ -318,7 +322,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				ONLY_ACTIVE_ARCH = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.augiefra.codex-dictate-companion";
 				PRODUCT_NAME = "Codex Dictate Companion";
